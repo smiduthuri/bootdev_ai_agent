@@ -2,9 +2,12 @@ import argparse
 import os
 import sys
 
+from time import sleep
+
 from dotenv import load_dotenv
 from google import genai
-from google.genai import types
+from google.genai import errors, types
+from tenacity import retry, retry_if_exception_type, stop_after_attempt
 
 from functions.get_file_content import get_file_content, schema_get_file_content
 from functions.get_files_info import get_files_info, schema_get_files_info
@@ -26,6 +29,7 @@ def parse_args():
     return parser.parse_args()
 
 
+@retry(reraise=True, stop=stop_after_attempt(2), retry=retry_if_exception_type(errors.ClientError))
 def call_function(function_call_part, verbose=False) -> types.Content:
     if verbose:
         print(f"Calling function: {function_call_part.name}({function_call_part.args})")
@@ -78,6 +82,8 @@ if __name__ == "__main__":
     - Write or overwrite files
 
     All paths you provide should be relative to the working directory. You do not need to specify the working directory in your function calls as it is automatically injected for security reasons.
+
+    Any questions about a calculator application can be answered by examining the files to which you are given access.
     """
 
     available_functions = types.Tool(
@@ -133,6 +139,7 @@ if __name__ == "__main__":
                     if args.verbose and function_call_result.parts[0].function_response:
                         print(f"-> {function_call_result.parts[0].function_response.response}")
                     messages.append(function_call_result)
+        sleep(1)
     else:
         raise RecursionError("Failed to get expected response before max iterations.")
 
