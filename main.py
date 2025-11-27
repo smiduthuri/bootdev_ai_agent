@@ -46,9 +46,8 @@ def parse_args():
     return parser.parse_args()
 
 
-@retry(reraise=True, stop=stop_after_attempt(2), retry=retry_if_exception_type(errors.ClientError))
 def call_function(function_call_part, verbose=False) -> types.Part:
-    LOGGER.info(f" - Calling function: {function_call_part.name}")
+    LOGGER.info(f" - Calling function: {function_call_part.name}({function_call_part.args})")
     if verbose:
         print(f"Calling function: {function_call_part.name}({function_call_part.args})")
     else:
@@ -63,14 +62,22 @@ def call_function(function_call_part, verbose=False) -> types.Part:
 
     if function_call_part.name not in function_map:
         return types.Part.from_function_response(
-            name=function_call_part.name,
-            response={"error": f"Unknown function: {function_call_part.name}"}
+            name=function_call_part.name, response={"error": f"Unknown function: {function_call_part.name}"}
         )
 
-    response = function_map[function_call_part.name]("./calculator", **function_call_part.args)
-    return types.Part.from_function_response(
-        name=function_call_part.name,
-        response={"result": response}
+    try:
+        response = function_map[function_call_part.name]("./calculator", **function_call_part.args)
+    except Exception as e:
+        return types.Part.from_function_response(name=function_call_part.name, response={"error": str(e)})
+    return types.Part.from_function_response(name=function_call_part.name, response={"result": response})
+
+
+@retry(reraise=True, stop=stop_after_attempt(2), retry=retry_if_exception_type(errors.ClientError))
+def generate_content_helper(system_prompt, messages):
+    return client.models.generate_content(
+        model=model,
+        config=types.GenerateContentConfig(tools=[available_functions], system_instruction=system_prompt),
+        contents=messages,
     )
 
 
@@ -89,7 +96,8 @@ if __name__ == "__main__":
     - Execute Python files with optional arguments
     - Write or overwrite files
 
-    All paths you provide should be relative to the working directory. You do not need to specify the working directory in your function calls as it is automatically injected for security reasons.
+    All paths you provide should be relative to the working directory. You do not need to specify the working directory
+    in your function calls as it is automatically injected for security reasons.
 
     Any questions about a calculator application can be answered by examining the files to which you are given access.
     """
@@ -105,13 +113,8 @@ if __name__ == "__main__":
 
     messages = [types.Content(role="user", parts=[types.Part(text=args.user_prompt)])]
     for i in range(20):
-        response = client.models.generate_content(
-            model=model,
-            config=types.GenerateContentConfig(
-                tools=[available_functions], system_instruction=system_prompt
-            ),
-            contents=messages,
-        )
+        print(f"Iteration {i}")
+        response = generate_content_helper(system_prompt, messages)
 
         if not response.function_calls or not response.candidates:
             LOGGER.info(f"Final Response: {response.text}")
@@ -142,15 +145,16 @@ if __name__ == "__main__":
                         and function_call_result.function_response.response is not None
                     ):
                         raise RuntimeError(
-                            f"Response content from call_function {part.function_call.name} does not have appropriate format"
+                            f"Response content from call_function {part.function_call.name} does not "
+                            "have appropriate format"
                         )
                     if args.verbose:
                         print(f"-> {function_call_result.function_response.response}")
                     candidate_response_content.parts.append(function_call_result)
             messages.append(candidate_response_content)
+        sleep(4)
     else:
         raise RecursionError("Failed to get expected response before max iterations.")
-
 
     if args.verbose:
         print(f"User prompt: {args.user_prompt}")
