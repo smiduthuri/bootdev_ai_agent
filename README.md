@@ -1,4 +1,4 @@
-# AI Agent Toy Project
+# AI Agent for Code Development
 
 This is a toy project to use Gemini Text-out models to build a code generation/manipulation agent. There will be more
 work required to turn this into something like a CLI tool that can be used with any package. I may come back to this
